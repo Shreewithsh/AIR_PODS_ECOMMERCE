@@ -13,12 +13,14 @@ export const SEQUENCE_CONFIG = {
 
 /**
  * Helper to generate zero-padded frame URLs
- * Works seamlessly in both local Vite dev and GitHub Pages production builds
+ * Produces absolute base paths matching Vite's import.meta.env.BASE_URL
+ * Example in Production: "/AIR_PODS_ECOMMERCE/frames/ezgif-frame-001.jpg"
+ * Example in Development: "/frames/ezgif-frame-001.jpg"
  */
 export function getFrameUrl(index, config = SEQUENCE_CONFIG) {
   const paddedIndex = String(index).padStart(config.digits, "0");
   const filename = `ezgif-frame-${paddedIndex}${config.extension}`;
-  const base = import.meta.env.BASE_URL || "./";
+  const base = import.meta.env.BASE_URL || "/";
   const cleanBase = base.endsWith("/") ? base : `${base}/`;
   return `${cleanBase}frames/${filename}`;
 }
@@ -134,7 +136,6 @@ export const ScrollSequence = ({
         loadedCount++;
         if (onLoadProgress) onLoadProgress(loadedCount, config.frameCount);
 
-        // Immediate readiness on first frame
         if (loadedCount >= 1 && !isReady) {
           setIsReady(true);
         }
