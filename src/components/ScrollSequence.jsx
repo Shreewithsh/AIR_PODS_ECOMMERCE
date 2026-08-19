@@ -119,44 +119,76 @@ export const ScrollSequence = ({
     lastRenderedFrameRef.current = frameIdx;
   }, [config.frameCount]);
 
-  // Preload frames on mount
+  // Preload frames with controlled queueing to prevent HTTP 429 Rate Limits on GitHub Pages CDN
   useEffect(() => {
     let isSubscribed = true;
     const loadedImages = new Array(config.frameCount);
     imagesRef.current = loadedImages;
     let loadedCount = 0;
 
+    // Split into keyframes first (odd numbers) then intermediate frames
+    const primaryQueue = [];
+    const secondaryQueue = [];
     for (let i = 1; i <= config.frameCount; i++) {
-      const img = new Image();
-      img.src = getFrameUrl(i, config);
-
-      img.onload = () => {
-        if (!isSubscribed) return;
-        loadedImages[i - 1] = img;
-        loadedCount++;
-        if (onLoadProgress) onLoadProgress(loadedCount, config.frameCount);
-
-        if (loadedCount >= 1 && !isReady) {
-          setIsReady(true);
-        }
-
-        if (loadedCount === config.frameCount) {
-          if (onLoaded) onLoaded();
-        }
-      };
-
-      img.onerror = () => {
-        if (!isSubscribed) return;
-        loadedCount++;
-        if (onLoadProgress) onLoadProgress(loadedCount, config.frameCount);
-        if (loadedCount >= 1 && !isReady) {
-          setIsReady(true);
-        }
-        if (loadedCount === config.frameCount) {
-          if (onLoaded) onLoaded();
-        }
-      };
+      if (i % 2 === 1 || i === 1 || i === config.frameCount) {
+        primaryQueue.push(i);
+      } else {
+        secondaryQueue.push(i);
+      }
     }
+    const fullQueue = [...primaryQueue, ...secondaryQueue];
+
+    const CONCURRENT_LIMIT = 4;
+    let activeRequests = 0;
+
+    const processQueue = () => {
+      if (!isSubscribed) return;
+
+      while (activeRequests < CONCURRENT_LIMIT && fullQueue.length > 0) {
+        const frameIndex = fullQueue.shift();
+        activeRequests++;
+
+        const img = new Image();
+        img.src = getFrameUrl(frameIndex, config);
+
+        img.onload = () => {
+          if (!isSubscribed) return;
+          loadedImages[frameIndex - 1] = img;
+          loadedCount++;
+          activeRequests--;
+          if (onLoadProgress) onLoadProgress(loadedCount, config.frameCount);
+
+          if (loadedCount >= 1 && !isReady) {
+            setIsReady(true);
+          }
+
+          if (loadedCount === config.frameCount && onLoaded) {
+            onLoaded();
+          }
+
+          setTimeout(processQueue, 10);
+        };
+
+        img.onerror = () => {
+          if (!isSubscribed) return;
+          loadedCount++;
+          activeRequests--;
+          if (onLoadProgress) onLoadProgress(loadedCount, config.frameCount);
+
+          if (loadedCount >= 1 && !isReady) {
+            setIsReady(true);
+          }
+
+          if (loadedCount === config.frameCount && onLoaded) {
+            onLoaded();
+          }
+
+          setTimeout(processQueue, 10);
+        };
+      }
+    };
+
+    processQueue();
 
     return () => {
       isSubscribed = false;
