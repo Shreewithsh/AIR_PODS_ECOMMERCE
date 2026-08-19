@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 export const ProgressIndicator = ({ loadedCount, totalCount, isLoaded }) => {
   const percentage = Math.min(100, Math.round((loadedCount / totalCount) * 100));
 
-  // Hide loading screen as soon as experience is ready or frames loaded
+  // Hide loading screen as soon as experience is ready or frames start loading past initial check
   const shouldHide = isLoaded || percentage >= 95;
 
   return (

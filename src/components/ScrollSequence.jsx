@@ -14,7 +14,7 @@ export const SEQUENCE_CONFIG = {
 /**
  * Helper to generate zero-padded frame URLs
  * Produces absolute base paths matching Vite's import.meta.env.BASE_URL
- * Example in Production: "/AIR_PODS_ECOMMERCE/frames/ezgif-frame-001.jpg"
+ * Example in Production: "/frames/ezgif-frame-001.jpg"
  * Example in Development: "/frames/ezgif-frame-001.jpg"
  */
 export function getFrameUrl(index, config = SEQUENCE_CONFIG) {
@@ -119,12 +119,13 @@ export const ScrollSequence = ({
     lastRenderedFrameRef.current = frameIdx;
   }, [config.frameCount]);
 
-  // Preload frames with controlled queueing to prevent HTTP 429 Rate Limits on GitHub Pages CDN
+  // Preload frames with controlled queueing to prevent HTTP 429 Rate Limits
   useEffect(() => {
     let isSubscribed = true;
     const loadedImages = new Array(config.frameCount);
     imagesRef.current = loadedImages;
     let loadedCount = 0;
+    let hasSignaledReady = false;
 
     // Split into keyframes first (odd numbers) then intermediate frames
     const primaryQueue = [];
@@ -138,7 +139,7 @@ export const ScrollSequence = ({
     }
     const fullQueue = [...primaryQueue, ...secondaryQueue];
 
-    const CONCURRENT_LIMIT = 4;
+    const CONCURRENT_LIMIT = 6;
     let activeRequests = 0;
 
     const processQueue = () => {
@@ -156,9 +157,13 @@ export const ScrollSequence = ({
           loadedImages[frameIndex - 1] = img;
           loadedCount++;
           activeRequests--;
-          if (onLoadProgress) onLoadProgress(loadedCount, config.frameCount);
 
-          if (loadedCount >= 1 && !isReady) {
+          if (onLoadProgress) {
+            onLoadProgress(loadedCount, config.frameCount);
+          }
+
+          if (!hasSignaledReady && loadedCount >= 1) {
+            hasSignaledReady = true;
             setIsReady(true);
           }
 
@@ -166,16 +171,20 @@ export const ScrollSequence = ({
             onLoaded();
           }
 
-          setTimeout(processQueue, 10);
+          setTimeout(processQueue, 5);
         };
 
         img.onerror = () => {
           if (!isSubscribed) return;
           loadedCount++;
           activeRequests--;
-          if (onLoadProgress) onLoadProgress(loadedCount, config.frameCount);
 
-          if (loadedCount >= 1 && !isReady) {
+          if (onLoadProgress) {
+            onLoadProgress(loadedCount, config.frameCount);
+          }
+
+          if (!hasSignaledReady && loadedCount >= 1) {
+            hasSignaledReady = true;
             setIsReady(true);
           }
 
@@ -183,7 +192,7 @@ export const ScrollSequence = ({
             onLoaded();
           }
 
-          setTimeout(processQueue, 10);
+          setTimeout(processQueue, 5);
         };
       }
     };
@@ -193,7 +202,7 @@ export const ScrollSequence = ({
     return () => {
       isSubscribed = false;
     };
-  }, [config, isReady, onLoadProgress, onLoaded]);
+  }, [config, onLoadProgress, onLoaded]); // NOT dependent on isReady!
 
   // Sync scroll progress to frame rendering
   useEffect(() => {
