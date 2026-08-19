@@ -13,14 +13,12 @@ export const SEQUENCE_CONFIG = {
 
 /**
  * Helper to generate zero-padded frame URLs
- * Example: getFrameUrl(1) => "frames/ezgif-frame-001.jpg"
+ * Uses relative pathing ("./frames/ezgif-frame-001.jpg") for universal compatibility
  */
 export function getFrameUrl(index, config = SEQUENCE_CONFIG) {
   const paddedIndex = String(index).padStart(config.digits, "0");
   const filename = `ezgif-frame-${paddedIndex}${config.extension}`;
-  const base = import.meta.env.BASE_URL || "/";
-  const cleanBase = base.endsWith("/") ? base : `${base}/`;
-  return `${cleanBase}frames/${filename}`;
+  return `./frames/${filename}`;
 }
 
 export const ScrollSequence = ({
