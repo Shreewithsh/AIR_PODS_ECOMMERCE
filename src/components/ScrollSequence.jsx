@@ -13,9 +13,7 @@ export const SEQUENCE_CONFIG = {
 
 /**
  * Helper to generate zero-padded frame URLs
- * Produces absolute base paths matching Vite's import.meta.env.BASE_URL
- * Example in Production: "/frames/ezgif-frame-001.jpg"
- * Example in Development: "/frames/ezgif-frame-001.jpg"
+ * Example: getFrameUrl(1) => "frames/ezgif-frame-001.jpg"
  */
 export function getFrameUrl(index, config = SEQUENCE_CONFIG) {
   const paddedIndex = String(index).padStart(config.digits, "0");
@@ -37,89 +35,101 @@ export const ScrollSequence = ({
   const [isReady, setIsReady] = useState(false);
   const [firstFrameSrc, setFirstFrameSrc] = useState("");
 
+  // Refs to prevent function recreation from restarting preloader effect
+  const onLoadProgressRef = useRef(onLoadProgress);
+  const onLoadedRef = useRef(onLoaded);
+
+  useEffect(() => {
+    onLoadProgressRef.current = onLoadProgress;
+    onLoadedRef.current = onLoaded;
+  });
+
   // Set first frame src for instant initial display
   useEffect(() => {
     setFirstFrameSrc(getFrameUrl(1, config));
   }, [config]);
 
   // Render a specific frame index onto the canvas with High-DPI Retina support
-  const renderFrame = useCallback((frameIdx) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+  const renderFrame = useCallback(
+    (frameIdx) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
 
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
 
-    const images = imagesRef.current;
-    if (!images || images.length === 0) return;
+      const images = imagesRef.current;
+      if (!images || images.length === 0) return;
 
-    // Find requested frame or fallback to nearest loaded frame
-    let img = images[frameIdx];
-    if (!img || !img.complete || img.naturalWidth === 0) {
-      for (let offset = 1; offset < config.frameCount; offset++) {
-        const prev = images[frameIdx - offset];
-        if (prev && prev.complete && prev.naturalWidth > 0) {
-          img = prev;
-          break;
-        }
-        const next = images[frameIdx + offset];
-        if (next && next.complete && next.naturalWidth > 0) {
-          img = next;
-          break;
+      // Find requested frame or fallback to nearest loaded frame
+      let img = images[frameIdx];
+      if (!img || !img.complete || img.naturalWidth === 0) {
+        for (let offset = 1; offset < config.frameCount; offset++) {
+          const prev = images[frameIdx - offset];
+          if (prev && prev.complete && prev.naturalWidth > 0) {
+            img = prev;
+            break;
+          }
+          const next = images[frameIdx + offset];
+          if (next && next.complete && next.naturalWidth > 0) {
+            img = next;
+            break;
+          }
         }
       }
-    }
 
-    if (!img || !img.complete || img.naturalWidth === 0) return;
+      if (!img || !img.complete || img.naturalWidth === 0) return;
 
-    // Canvas dimensions & Retina resolution scaling
-    const dpr = window.devicePixelRatio || 1;
-    const parent = canvas.parentElement;
-    const width = parent?.clientWidth || window.innerWidth;
-    const height = parent?.clientHeight || window.innerHeight;
+      // Canvas dimensions & Retina resolution scaling
+      const dpr = window.devicePixelRatio || 1;
+      const parent = canvas.parentElement;
+      const width = parent?.clientWidth || window.innerWidth;
+      const height = parent?.clientHeight || window.innerHeight;
 
-    if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
-      canvas.width = width * dpr;
-      canvas.height = height * dpr;
-    }
+      if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
+        canvas.width = width * dpr;
+        canvas.height = height * dpr;
+      }
 
-    ctx.save();
-    ctx.scale(dpr, dpr);
+      ctx.save();
+      ctx.scale(dpr, dpr);
 
-    // Clear canvas with deep black
-    ctx.fillStyle = "#000000";
-    ctx.fillRect(0, 0, width, height);
+      // Clear canvas with deep black
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(0, 0, width, height);
 
-    // Object-fit: contain scaling
-    const imgWidth = img.naturalWidth || 1280;
-    const imgHeight = img.naturalHeight || 720;
-    const imgAspect = imgWidth / imgHeight;
-    const canvasAspect = width / height;
+      // Object-fit: contain scaling
+      const imgWidth = img.naturalWidth || 1280;
+      const imgHeight = img.naturalHeight || 720;
+      const imgAspect = imgWidth / imgHeight;
+      const canvasAspect = width / height;
 
-    let renderW = width;
-    let renderH = height;
-    let renderX = 0;
-    let renderY = 0;
+      let renderW = width;
+      let renderH = height;
+      let renderX = 0;
+      let renderY = 0;
 
-    if (canvasAspect > imgAspect) {
-      renderH = height;
-      renderW = height * imgAspect;
-      renderX = (width - renderW) / 2;
-      renderY = 0;
-    } else {
-      renderW = width;
-      renderH = width / imgAspect;
-      renderX = 0;
-      renderY = (height - renderH) / 2;
-    }
+      if (canvasAspect > imgAspect) {
+        renderH = height;
+        renderW = height * imgAspect;
+        renderX = (width - renderW) / 2;
+        renderY = 0;
+      } else {
+        renderW = width;
+        renderH = width / imgAspect;
+        renderX = 0;
+        renderY = (height - renderH) / 2;
+      }
 
-    ctx.drawImage(img, renderX, renderY, renderW, renderH);
-    ctx.restore();
+      ctx.drawImage(img, renderX, renderY, renderW, renderH);
+      ctx.restore();
 
-    lastRenderedFrameRef.current = frameIdx;
-  }, [config.frameCount]);
+      lastRenderedFrameRef.current = frameIdx;
+    },
+    [config.frameCount]
+  );
 
-  // Preload frames with controlled queueing to prevent HTTP 429 Rate Limits
+  // Preload all frames using stable ref callbacks
   useEffect(() => {
     let isSubscribed = true;
     const loadedImages = new Array(config.frameCount);
@@ -127,82 +137,52 @@ export const ScrollSequence = ({
     let loadedCount = 0;
     let hasSignaledReady = false;
 
-    // Split into keyframes first (odd numbers) then intermediate frames
-    const primaryQueue = [];
-    const secondaryQueue = [];
     for (let i = 1; i <= config.frameCount; i++) {
-      if (i % 2 === 1 || i === 1 || i === config.frameCount) {
-        primaryQueue.push(i);
-      } else {
-        secondaryQueue.push(i);
-      }
+      const img = new Image();
+      img.src = getFrameUrl(i, config);
+
+      img.onload = () => {
+        if (!isSubscribed) return;
+        loadedImages[i - 1] = img;
+        loadedCount++;
+
+        if (onLoadProgressRef.current) {
+          onLoadProgressRef.current(loadedCount, config.frameCount);
+        }
+
+        if (!hasSignaledReady && loadedCount >= 1) {
+          hasSignaledReady = true;
+          setIsReady(true);
+        }
+
+        if (loadedCount === config.frameCount && onLoadedRef.current) {
+          onLoadedRef.current();
+        }
+      };
+
+      img.onerror = () => {
+        if (!isSubscribed) return;
+        loadedCount++;
+
+        if (onLoadProgressRef.current) {
+          onLoadProgressRef.current(loadedCount, config.frameCount);
+        }
+
+        if (!hasSignaledReady && loadedCount >= 1) {
+          hasSignaledReady = true;
+          setIsReady(true);
+        }
+
+        if (loadedCount === config.frameCount && onLoadedRef.current) {
+          onLoadedRef.current();
+        }
+      };
     }
-    const fullQueue = [...primaryQueue, ...secondaryQueue];
-
-    const CONCURRENT_LIMIT = 6;
-    let activeRequests = 0;
-
-    const processQueue = () => {
-      if (!isSubscribed) return;
-
-      while (activeRequests < CONCURRENT_LIMIT && fullQueue.length > 0) {
-        const frameIndex = fullQueue.shift();
-        activeRequests++;
-
-        const img = new Image();
-        img.src = getFrameUrl(frameIndex, config);
-
-        img.onload = () => {
-          if (!isSubscribed) return;
-          loadedImages[frameIndex - 1] = img;
-          loadedCount++;
-          activeRequests--;
-
-          if (onLoadProgress) {
-            onLoadProgress(loadedCount, config.frameCount);
-          }
-
-          if (!hasSignaledReady && loadedCount >= 1) {
-            hasSignaledReady = true;
-            setIsReady(true);
-          }
-
-          if (loadedCount === config.frameCount && onLoaded) {
-            onLoaded();
-          }
-
-          setTimeout(processQueue, 5);
-        };
-
-        img.onerror = () => {
-          if (!isSubscribed) return;
-          loadedCount++;
-          activeRequests--;
-
-          if (onLoadProgress) {
-            onLoadProgress(loadedCount, config.frameCount);
-          }
-
-          if (!hasSignaledReady && loadedCount >= 1) {
-            hasSignaledReady = true;
-            setIsReady(true);
-          }
-
-          if (loadedCount === config.frameCount && onLoaded) {
-            onLoaded();
-          }
-
-          setTimeout(processQueue, 5);
-        };
-      }
-    };
-
-    processQueue();
 
     return () => {
       isSubscribed = false;
     };
-  }, [config, onLoadProgress, onLoaded]); // NOT dependent on isReady!
+  }, [config.frameCount, config.framePath, config.extension, config.digits]);
 
   // Sync scroll progress to frame rendering
   useEffect(() => {
@@ -219,7 +199,8 @@ export const ScrollSequence = ({
   // Window resize listener
   useEffect(() => {
     const handleResize = () => {
-      const frameToDraw = lastRenderedFrameRef.current >= 0 ? lastRenderedFrameRef.current : 0;
+      const frameToDraw =
+        lastRenderedFrameRef.current >= 0 ? lastRenderedFrameRef.current : 0;
       renderFrame(frameToDraw);
     };
 
