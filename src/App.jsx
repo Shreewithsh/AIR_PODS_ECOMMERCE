@@ -58,7 +58,7 @@ export function App() {
 
   return (
     <div className="min-h-screen bg-[var(--background)] text-white relative font-sans">
-      {/* Loading experience overlay */}
+      {/* Asset loading progress indicator */}
       <ProgressIndicator
         loadedCount={loadedCount}
         totalCount={totalCount}
@@ -68,12 +68,9 @@ export function App() {
       {/* Floating Apple Navbar */}
       <Navbar />
 
-      {/* Hero Header Section */}
-      <Hero />
-
-      {/* Main 400vh Pinned Scroll-Controlled Canvas Experience */}
-      <section ref={containerRef} className="relative h-[400vh] w-full">
-        <div className="sticky top-0 h-screen w-full overflow-hidden flex items-center justify-center">
+      {/* Main 500vh Pinned Interactive Canvas Section */}
+      <section ref={containerRef} className="relative h-[500vh] w-full">
+        <div className="sticky top-0 h-screen w-full overflow-hidden flex items-center justify-center bg-black">
           {/* HTML5 Canvas Image Sequence Renderer */}
           <ScrollSequence
             scrollProgress={scrollProgress}
@@ -84,13 +81,16 @@ export function App() {
             onLoaded={() => setIsLoaded(true)}
           />
 
-          {/* Synchronized Scroll-Linked Feature Text Storytelling */}
+          {/* Hero Section Overlay (fades out from 0% to 12% scroll) */}
+          <Hero scrollProgress={scrollProgress} />
+
+          {/* Synchronized Scroll-Linked Feature Text Storytelling (20% to 95%) */}
           <FeatureSection scrollProgress={scrollProgress} />
         </div>
       </section>
 
       {/* Product Summary / Buy Banner Section */}
-      <section id="buy" className="py-28 px-6 text-center border-t border-white/10 bg-black/40 backdrop-blur-lg relative z-20">
+      <section id="buy" className="py-28 px-6 text-center border-t border-white/10 bg-black/80 backdrop-blur-lg relative z-20">
         <div className="max-w-3xl mx-auto">
           <span className="text-xs uppercase font-semibold text-white/50 tracking-widest block mb-3">
             AirPods Pro (2nd generation)
