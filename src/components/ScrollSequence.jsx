@@ -6,18 +6,21 @@ import React, { useRef, useEffect, useState, useCallback } from "react";
 // =========================================================================
 export const SEQUENCE_CONFIG = {
   frameCount: 240,
-  framePath: "/frames/ezgif-frame-",
+  framePath: "frames/ezgif-frame-",
   extension: ".jpg",
   digits: 3, // e.g., 001, 002, 003 ... 240
 };
 
 /**
- * Helper to generate zero-padded frame URLs
- * Example: getFrameUrl(1) => "/frames/ezgif-frame-001.jpg"
+ * Helper to generate zero-padded frame URLs respecting Vite base paths
+ * Example: getFrameUrl(1) => "frames/ezgif-frame-001.jpg" or "/AIR_PODS_ECOMMERCE/frames/ezgif-frame-001.jpg"
  */
 export function getFrameUrl(index, config = SEQUENCE_CONFIG) {
   const paddedIndex = String(index).padStart(config.digits, "0");
-  return `${config.framePath}${paddedIndex}${config.extension}`;
+  const cleanPath = config.framePath.replace(/^\//, "");
+  const baseUrl = import.meta.env.BASE_URL || "./";
+  const cleanBase = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
+  return `${cleanBase}${cleanPath}${paddedIndex}${config.extension}`;
 }
 
 export const ScrollSequence = ({
@@ -31,46 +34,6 @@ export const ScrollSequence = ({
   const lastRenderedFrameRef = useRef(-1);
   const [isReady, setIsReady] = useState(false);
 
-  // Preload all frames on mount
-  useEffect(() => {
-    let isSubscribed = true;
-    const loadedImages = new Array(config.frameCount);
-    let loadedCount = 0;
-
-    for (let i = 1; i <= config.frameCount; i++) {
-      const img = new Image();
-      img.src = getFrameUrl(i, config);
-
-      img.onload = () => {
-        if (!isSubscribed) return;
-        loadedImages[i - 1] = img;
-        loadedCount++;
-        if (onLoadProgress) onLoadProgress(loadedCount, config.frameCount);
-
-        if (loadedCount === config.frameCount) {
-          imagesRef.current = loadedImages;
-          setIsReady(true);
-          if (onLoaded) onLoaded();
-        }
-      };
-
-      img.onerror = () => {
-        if (!isSubscribed) return;
-        loadedCount++;
-        if (onLoadProgress) onLoadProgress(loadedCount, config.frameCount);
-        if (loadedCount === config.frameCount) {
-          imagesRef.current = loadedImages;
-          setIsReady(true);
-          if (onLoaded) onLoaded();
-        }
-      };
-    }
-
-    return () => {
-      isSubscribed = false;
-    };
-  }, [config, onLoadProgress, onLoaded]);
-
   // Render a specific frame index onto the canvas with High-DPI Retina support
   const renderFrame = useCallback((frameIdx) => {
     const canvas = canvasRef.current;
@@ -79,13 +42,33 @@ export const ScrollSequence = ({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const img = imagesRef.current[frameIdx];
+    const images = imagesRef.current;
+    if (!images || images.length === 0) return;
+
+    // Find the requested frame, or fallback to the nearest available loaded frame
+    let img = images[frameIdx];
+    if (!img || !img.complete || img.naturalWidth === 0) {
+      // Find nearest loaded frame
+      for (let offset = 1; offset < config.frameCount; offset++) {
+        const prev = images[frameIdx - offset];
+        if (prev && prev.complete && prev.naturalWidth > 0) {
+          img = prev;
+          break;
+        }
+        const next = images[frameIdx + offset];
+        if (next && next.complete && next.naturalWidth > 0) {
+          img = next;
+          break;
+        }
+      }
+    }
+
     if (!img || !img.complete || img.naturalWidth === 0) return;
 
-    // Retina / High-DPI support
+    // Retina / High-DPI support & robust fallback container sizing
     const dpr = window.devicePixelRatio || 1;
-    const width = canvas.clientWidth;
-    const height = canvas.clientHeight;
+    const width = canvas.clientWidth || canvas.parentElement?.clientWidth || window.innerWidth;
+    const height = canvas.clientHeight || canvas.parentElement?.clientHeight || window.innerHeight;
 
     if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
       canvas.width = width * dpr;
@@ -125,29 +108,76 @@ export const ScrollSequence = ({
     ctx.restore();
 
     lastRenderedFrameRef.current = frameIdx;
-  }, []);
+  }, [config.frameCount]);
+
+  // Preload all frames on mount
+  useEffect(() => {
+    let isSubscribed = true;
+    const loadedImages = new Array(config.frameCount);
+    imagesRef.current = loadedImages; // Immediately assign array reference!
+    let loadedCount = 0;
+
+    for (let i = 1; i <= config.frameCount; i++) {
+      const img = new Image();
+      img.src = getFrameUrl(i, config);
+
+      img.onload = () => {
+        if (!isSubscribed) return;
+        loadedImages[i - 1] = img;
+        loadedCount++;
+        if (onLoadProgress) onLoadProgress(loadedCount, config.frameCount);
+
+        // Mark ready as soon as initial frame or enough frames are ready
+        if (loadedCount >= 1 && !isReady) {
+          setIsReady(true);
+        }
+
+        if (loadedCount === config.frameCount) {
+          if (onLoaded) onLoaded();
+        }
+      };
+
+      img.onerror = (e) => {
+        if (!isSubscribed) return;
+        console.warn(`Failed to load frame ${i}:`, img.src);
+        loadedCount++;
+        if (onLoadProgress) onLoadProgress(loadedCount, config.frameCount);
+        if (loadedCount >= 1 && !isReady) {
+          setIsReady(true);
+        }
+        if (loadedCount === config.frameCount) {
+          if (onLoaded) onLoaded();
+        }
+      };
+    }
+
+    return () => {
+      isSubscribed = false;
+    };
+  }, [config, isReady, onLoadProgress, onLoaded]);
 
   // Sync scroll progress to target frame index via requestAnimationFrame
   useEffect(() => {
-    if (!isReady || imagesRef.current.length === 0) return;
+    if (!isReady || !imagesRef.current) return;
 
     const targetFrame = Math.min(
       config.frameCount - 1,
       Math.max(0, Math.floor(scrollProgress * (config.frameCount - 1)))
     );
 
-    // Avoid rendering the same frame repeatedly
+    // Render frame
     if (lastRenderedFrameRef.current !== targetFrame) {
       requestAnimationFrame(() => renderFrame(targetFrame));
     }
   }, [scrollProgress, isReady, config.frameCount, renderFrame]);
 
-  // Handle window resize dynamically
+  // Initial draw & window resize handler
   useEffect(() => {
     if (!isReady) return;
 
     const handleResize = () => {
-      renderFrame(lastRenderedFrameRef.current >= 0 ? lastRenderedFrameRef.current : 0);
+      const frameToDraw = lastRenderedFrameRef.current >= 0 ? lastRenderedFrameRef.current : 0;
+      renderFrame(frameToDraw);
     };
 
     renderFrame(0);

@@ -2,14 +2,17 @@ import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
 export const ProgressIndicator = ({ loadedCount, totalCount, isLoaded }) => {
-  const percentage = Math.round((loadedCount / totalCount) * 100);
+  const percentage = Math.min(100, Math.round((loadedCount / totalCount) * 100));
+
+  // Hide loading screen as soon as experience is ready or frames loaded
+  const shouldHide = isLoaded || percentage >= 95;
 
   return (
     <AnimatePresence>
-      {!isLoaded && (
+      {!shouldHide && (
         <motion.div
           initial={{ opacity: 1 }}
-          exit={{ opacity: 0, transition: { duration: 0.8, ease: "easeOut" } }}
+          exit={{ opacity: 0, transition: { duration: 0.6, ease: "easeOut" } }}
           className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black text-white px-6 select-none"
         >
           <div className="flex flex-col items-center max-w-sm w-full">
